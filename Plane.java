@@ -20,7 +20,7 @@ public class Plane {
             this.currentSpeed = speed;
             fuelCapacity -= speed / efficiency; // Decrease fuel based on speed and efficiency
         } else {
-            System.out.println("Speed exceeds maximum limit.");
+            System.out.println("Aircraft is at maximum speed.");
         }
     }
 
