@@ -23,6 +23,7 @@ import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.ButtonGroup;
 import javax.swing.JFrame;
+import javax.swing.ImageIcon;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
@@ -35,12 +36,16 @@ import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 
 public class UserInterface {
-    private static final Color NAVY = new Color(25, 32, 54);
-    private static final Color DEEP_INDIGO = new Color(39, 35, 100);
-    private static final Color BLUE = new Color(70, 91, 190);
-    private static final Color MUTED = new Color(103, 112, 132);
-    private static final Color BACKGROUND = new Color(246, 247, 251);
-    private static final Color SURFACE_BORDER = new Color(228, 231, 240);
+    private static final Color NAVY = new Color(35, 49, 68);
+    private static final Color DEEP_INDIGO = new Color(57, 43, 83);
+    private static final Color BLUE = new Color(224, 112, 77);
+    private static final Color MUTED = new Color(116, 105, 120);
+    private static final Color BACKGROUND = new Color(249, 244, 241);
+    private static final Color SURFACE_BORDER = new Color(232, 218, 211);
+    private static final Color MAPS_DARK = new Color(48, 39, 56);
+    private static final Color MAPS_PANEL = new Color(67, 51, 63);
+    private static final Color MAPS_TEXT = new Color(255, 239, 226);
+    private static final Color MAPS_MUTED = new Color(207, 184, 180);
     private static final int MAP_SIZE = 64;
 
     private final JFrame frame = new JFrame("Flight Planner");
@@ -50,6 +55,8 @@ public class UserInterface {
     private final BufferedImage coverImage = loadCoverImage();
     private final BufferedImage homeBackgroundImage = loadImage("horizonbackground.png");
     private final BufferedImage homePlaneImage = loadImage("startscreenplanepng.png");
+    private final BufferedImage mapsCardIcon = loadImage("mapicon.png");
+    private final BufferedImage statsCardIcon = loadImage("info.png");
     private final JTextField modelField = new JTextField("Boeing 747");
     private final JTextField maxSpeedField = new JTextField("900");
     private final JTextField cruiseSpeedField = new JTextField("850");
@@ -190,12 +197,19 @@ public class UserInterface {
 
     private JPanel createHomeChoice(String title, String description, Runnable action) {
         HomeChoiceCard choice = new HomeChoiceCard();
-        choice.setBackground(new Color(255, 255, 255, 238));
+        choice.setBackground(new Color(255, 250, 247, 242));
         choice.setBorder(BorderFactory.createEmptyBorder(22, 22, 22, 22));
 
         JLabel heading = new JLabel(title);
         heading.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 20));
         heading.setForeground(NAVY);
+        BufferedImage iconImage = title.equals("MAPS") ? mapsCardIcon : statsCardIcon;
+        JLabel icon = new JLabel(new ImageIcon(iconImage.getScaledInstance(42, 42, java.awt.Image.SCALE_SMOOTH)));
+        icon.setToolTipText(title + " icon");
+        JPanel cardHeading = new JPanel(new BorderLayout());
+        cardHeading.setOpaque(false);
+        cardHeading.add(heading, BorderLayout.WEST);
+        cardHeading.add(icon, BorderLayout.EAST);
         JLabel detail = new JLabel("<html><div style='width:230px'>" + description + "</div></html>");
         detail.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 13));
         detail.setForeground(MUTED);
@@ -204,7 +218,7 @@ public class UserInterface {
         openButton.setBorder(BorderFactory.createEmptyBorder(10, 14, 10, 14));
         openButton.addActionListener(event -> action.run());
 
-        choice.add(heading, BorderLayout.NORTH);
+        choice.add(cardHeading, BorderLayout.NORTH);
         choice.add(detail, BorderLayout.CENTER);
         choice.add(openButton, BorderLayout.SOUTH);
         choice.installHoverListeners();
@@ -314,7 +328,7 @@ public class UserInterface {
     }
 
     private void styleRouteOption(JButton button, boolean selected) {
-        button.setBackground(selected ? DEEP_INDIGO : new Color(231, 234, 245));
+        button.setBackground(selected ? DEEP_INDIGO : new Color(239, 231, 235));
         button.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(selected ? DEEP_INDIGO : SURFACE_BORDER, 1, true),
                 BorderFactory.createEmptyBorder(7, 10, 7, 10)));
@@ -335,8 +349,8 @@ public class UserInterface {
         Route route = calculateSelectedRoute();
 
         JTabbedPane tabs = new JTabbedPane();
-        tabs.setBackground(BACKGROUND);
-        tabs.setForeground(NAVY);
+        tabs.setBackground(MAPS_PANEL);
+        tabs.setForeground(MAPS_TEXT);
         tabs.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         tabs.addTab("Topographic", createMapTab(
                 "Elevation map", "Green is low land, yellow/red is higher terrain, blue is below sea level; selected route is overlaid.",
@@ -347,16 +361,19 @@ public class UserInterface {
         tabs.addTab("Precipitation", createMapTab(
                 "Precipitation map", "Green is land, blue is ocean, and the blue overlay darkens with precipitation chance.",
                 createMapCanvas(MapKind.PRECIPITATION, route)));
+        tabs.addTab("Danger", createMapTab(
+                "Weather danger map", "Green is lower danger, yellow is moderate, and red is higher weather danger.",
+                createMapCanvas(MapKind.DANGER, route)));
 
         mapsPage = new JPanel(new BorderLayout(0, 12));
-        mapsPage.setBackground(BACKGROUND);
+        mapsPage.setBackground(MAPS_DARK);
         mapsPage.setBorder(BorderFactory.createEmptyBorder(20, 24, 24, 24));
         JButton backButton = new AnimatedButton("← HOME");
         styleActionButton(backButton, DEEP_INDIGO);
         backButton.addActionListener(event -> showHome());
         JLabel title = new JLabel("FLIGHT MAPS");
         title.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 22));
-        title.setForeground(NAVY);
+        title.setForeground(MAPS_TEXT);
         JPanel mapHeader = new JPanel(new BorderLayout());
         mapHeader.setOpaque(false);
         mapHeader.add(title, BorderLayout.WEST);
@@ -376,15 +393,15 @@ public class UserInterface {
 
     private JPanel createMapTab(String title, String description, MapCanvas mapCanvas) {
         JPanel tab = new JPanel(new BorderLayout(0, 8));
-        tab.setBackground(BACKGROUND);
+        tab.setBackground(MAPS_PANEL);
         tab.setBorder(BorderFactory.createEmptyBorder(16, 18, 18, 18));
 
         JLabel heading = new JLabel(title);
         heading.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 18));
-        heading.setForeground(NAVY);
+        heading.setForeground(MAPS_TEXT);
         JLabel help = new JLabel(description);
         help.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 13));
-        help.setForeground(MUTED);
+        help.setForeground(MAPS_MUTED);
 
         JPanel labels = new JPanel(new GridLayout(2, 1, 0, 3));
         labels.setOpaque(false);
@@ -439,7 +456,7 @@ public class UserInterface {
             Route route = calculateRoute(selectedRouteStrategy);
             if (route != null && selectedRouteStrategy == PathFinder.RouteStrategy.RECOMMENDED
                     && hasDangerAboveLimit(route)) {
-                statusLabel.setText("No route met the 5% danger limit; showing the safest available route.");
+                statusLabel.setText("No route met the 10% danger limit; showing the safest available route.");
             }
             return route;
         } catch (IllegalArgumentException error) {
@@ -854,7 +871,7 @@ public class UserInterface {
             super(layout);
             this.cornerRadius = cornerRadius;
             setOpaque(false);
-            setBackground(Color.WHITE);
+            setBackground(new Color(255, 250, 247, 242));
         }
 
         @Override
@@ -980,7 +997,7 @@ public class UserInterface {
     private void styleTextField(JTextField field) {
         field.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 13));
         field.setForeground(NAVY);
-        field.setBackground(new Color(250, 251, 254));
+        field.setBackground(new Color(255, 251, 249));
         field.setCaretColor(BLUE);
         field.setMargin(new Insets(8, 10, 8, 10));
         field.setBorder(BorderFactory.createCompoundBorder(
@@ -1140,7 +1157,8 @@ public class UserInterface {
     private enum MapKind {
         TERRAIN,
         WIND,
-        PRECIPITATION
+        PRECIPITATION,
+        DANGER
     }
 
     private enum Endpoint {
@@ -1190,6 +1208,9 @@ public class UserInterface {
         private final double minimumPrecipitation;
         private final double averagePrecipitation;
         private final double maximumPrecipitation;
+        private final double minimumDanger;
+        private final double averageDanger;
+        private final double maximumDanger;
 
         private MapCanvas(
                 PathFinder pathFinder, MapKind kind, Route route,
@@ -1202,18 +1223,21 @@ public class UserInterface {
             this.destinationX = destinationX;
             this.destinationY = destinationY;
             this.endpointDragListener = endpointDragListener;
-            setBackground(Color.WHITE);
+            setBackground(MAPS_DARK);
             setPreferredSize(new java.awt.Dimension(680, 650));
             installEndpointDragging();
             double elevationSum = 0;
             double windSpeedSum = 0;
             double precipitationSum = 0;
+            double dangerSum = 0;
             double lowestElevation = Double.POSITIVE_INFINITY;
             double highestElevation = Double.NEGATIVE_INFINITY;
             double lowestWindSpeed = Double.POSITIVE_INFINITY;
             double highestWindSpeed = Double.NEGATIVE_INFINITY;
             double lowestPrecipitation = Double.POSITIVE_INFINITY;
             double highestPrecipitation = Double.NEGATIVE_INFINITY;
+            double lowestDanger = Double.POSITIVE_INFINITY;
+            double highestDanger = Double.NEGATIVE_INFINITY;
             for (int y = 0; y < MAP_SIZE; y++) {
                 for (int x = 0; x < MAP_SIZE; x++) {
                     terrain[y][x] = pathFinder.getTerrainAt(x, y);
@@ -1226,12 +1250,15 @@ public class UserInterface {
                     elevationSum += terrain[y][x];
                     windSpeedSum += windSpeeds[y][x];
                     precipitationSum += precipitation[y][x];
+                    dangerSum += weatherDanger[y][x];
                     lowestElevation = Math.min(lowestElevation, terrain[y][x]);
                     highestElevation = Math.max(highestElevation, terrain[y][x]);
                     lowestWindSpeed = Math.min(lowestWindSpeed, windSpeeds[y][x]);
                     highestWindSpeed = Math.max(highestWindSpeed, windSpeeds[y][x]);
                     lowestPrecipitation = Math.min(lowestPrecipitation, precipitation[y][x]);
                     highestPrecipitation = Math.max(highestPrecipitation, precipitation[y][x]);
+                    lowestDanger = Math.min(lowestDanger, weatherDanger[y][x]);
+                    highestDanger = Math.max(highestDanger, weatherDanger[y][x]);
                 }
             }
             int cellCount = MAP_SIZE * MAP_SIZE;
@@ -1244,6 +1271,9 @@ public class UserInterface {
             minimumPrecipitation = lowestPrecipitation;
             averagePrecipitation = precipitationSum / cellCount;
             maximumPrecipitation = highestPrecipitation;
+            minimumDanger = lowestDanger;
+            averageDanger = dangerSum / cellCount;
+            maximumDanger = highestDanger;
         }
 
         private void installEndpointDragging() {
@@ -1407,7 +1437,7 @@ public class UserInterface {
                         new Color(190, 45, 45), "D");
             }
 
-            g.setColor(new Color(45, 61, 77));
+            g.setColor(new Color(221, 194, 187));
             g.drawRect(mapX, mapY, mapSize, mapSize);
             g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
             g.drawString("0", mapX - 10, mapY + 10);
@@ -1424,18 +1454,18 @@ public class UserInterface {
             int x = getWidth() - boxWidth - 12;
             int y = getHeight() - boxHeight - 8;
 
-            g.setColor(new Color(255, 255, 255, 238));
+            g.setColor(new Color(53, 42, 57, 238));
             g.fillRoundRect(x, y, boxWidth, boxHeight, 16, 16);
-            g.setColor(new Color(190, 201, 215));
+            g.setColor(new Color(180, 122, 111));
             g.drawRoundRect(x, y, boxWidth, boxHeight, 16, 16);
-            g.setColor(NAVY);
+            g.setColor(MAPS_TEXT);
             g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 10));
             g.drawString("SELECTED ROUTE", x + 12, y + 16);
             g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
             g.drawString(routeSummary(), x + 12, y + 31);
-            g.setColor(new Color(220, 224, 234));
+            g.setColor(new Color(103, 77, 84));
             g.drawLine(x + 12, y + 39, x + boxWidth - 12, y + 39);
-            g.setColor(NAVY);
+            g.setColor(MAPS_TEXT);
             g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 9));
             g.drawString(statsTitle(), x + 12, y + 53);
             g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 9));
@@ -1451,6 +1481,8 @@ public class UserInterface {
                     return "WIND SPEED STATS";
                 case PRECIPITATION:
                     return "PRECIPITATION STATS";
+                case DANGER:
+                    return "WEATHER DANGER STATS";
                 default:
                     throw new IllegalStateException("Unsupported map kind: " + kind);
             }
@@ -1467,6 +1499,9 @@ public class UserInterface {
                 case PRECIPITATION:
                     return String.format(java.util.Locale.ROOT, "Min %.0f%%   Avg %.0f%%   Max %.0f%%",
                             minimumPrecipitation * 100, averagePrecipitation * 100, maximumPrecipitation * 100);
+                case DANGER:
+                    return String.format(java.util.Locale.ROOT, "Min %.0f%%   Avg %.0f%%   Max %.0f%%",
+                            minimumDanger * 100, averageDanger * 100, maximumDanger * 100);
                 default:
                     throw new IllegalStateException("Unsupported map kind: " + kind);
             }
@@ -1480,6 +1515,8 @@ public class UserInterface {
                     return "Generated wind field across 4,096 cells";
                 case PRECIPITATION:
                     return "Generated precipitation chance across 4,096 cells";
+                case DANGER:
+                    return "Generated weather danger across 4,096 cells";
                 default:
                     throw new IllegalStateException("Unsupported map kind: " + kind);
             }
@@ -1506,26 +1543,40 @@ public class UserInterface {
         }
 
         private Color cellColor(int x, int y) {
+            if (kind == MapKind.DANGER) {
+                double danger = Math.max(0, Math.min(1, weatherDanger[y][x]));
+                Color dangerShade;
+                if (danger <= 0.05) {
+                    dangerShade = interpolate(
+                            new Color(112, 177, 118), new Color(244, 205, 96), danger / 0.05);
+                } else if (danger <= 0.10) {
+                    dangerShade = interpolate(
+                            new Color(244, 205, 96), new Color(198, 56, 54), (danger - 0.05) / 0.05);
+                } else {
+                    dangerShade = interpolate(new Color(198, 56, 54), Color.BLACK, (danger - 0.10) / 0.90);
+                }
+                return blend(surfaceColor(x, y), dangerShade, 0.65);
+            }
             if (kind == MapKind.PRECIPITATION) {
-                Color surface = terrain[y][x] < 0
-                        ? new Color(55, 145, 205)
-                        : new Color(83, 158, 92);
                 Color precipitationShade = interpolate(
                         new Color(239, 247, 255), new Color(12, 74, 145), precipitation[y][x]);
-                return blend(surface, precipitationShade, 0.65);
+                return blend(surfaceColor(x, y), precipitationShade, 0.65);
             }
             if (kind == MapKind.WIND) {
                 double speedRange = maximumWindSpeed - minimumWindSpeed;
                 double intensity = speedRange == 0
                         ? 0
                         : (windSpeeds[y][x] - minimumWindSpeed) / speedRange;
-                Color surface = terrain[y][x] < 0
-                        ? new Color(55, 145, 205)
-                        : new Color(83, 158, 92);
                 Color windShade = interpolate(new Color(225, 225, 225), new Color(45, 45, 45), intensity);
-                return blend(surface, windShade, 0.5);
+                return blend(surfaceColor(x, y), windShade, 0.5);
             }
             return terrainColor(terrain[y][x]);
+        }
+
+        private Color surfaceColor(int x, int y) {
+            return terrain[y][x] < 0
+                    ? new Color(55, 145, 205)
+                    : new Color(83, 158, 92);
         }
 
         private void drawRoute(Graphics2D g, int mapX, int mapY, int mapSize) {
@@ -1545,7 +1596,7 @@ public class UserInterface {
             g.setColor(Color.WHITE);
             g.drawPolyline(xPoints, yPoints, points.length);
             g.setStroke(new java.awt.BasicStroke(3, java.awt.BasicStroke.CAP_ROUND, java.awt.BasicStroke.JOIN_ROUND));
-            g.setColor(new Color(255, 115, 35));
+            g.setColor(new Color(232, 112, 70));
             g.drawPolyline(xPoints, yPoints, points.length);
         }
 

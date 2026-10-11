@@ -5,7 +5,7 @@ import java.util.Random;
 
 public class PathFinder {
     private static final int GRID_SIZE = 64;
-    public static final double RECOMMENDED_MAX_DANGER = 0.05;
+    public static final double RECOMMENDED_MAX_DANGER = 0.10;
 
     public enum RouteStrategy {
         FASTEST,
