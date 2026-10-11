@@ -44,6 +44,10 @@ public class Plane {
         return model;
     }
 
+    public double getEfficiency() {
+        return efficiency;
+    }
+
     public double getMaxSpeed() {
         return maxSpeed;
     }
