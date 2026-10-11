@@ -1,6 +1,7 @@
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.AlphaComposite;
+import java.awt.CardLayout;
 import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
@@ -15,33 +16,47 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.ButtonGroup;
-import javax.swing.JDialog;
 import javax.swing.JFrame;
+import javax.swing.ImageIcon;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextField;
+import javax.swing.Timer;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 
 public class UserInterface {
-    private static final Color NAVY = new Color(25, 32, 54);
-    private static final Color DEEP_INDIGO = new Color(39, 35, 100);
-    private static final Color BLUE = new Color(70, 91, 190);
-    private static final Color MUTED = new Color(103, 112, 132);
-    private static final Color BACKGROUND = new Color(246, 247, 251);
-    private static final Color SURFACE_BORDER = new Color(228, 231, 240);
+    private static final Color NAVY = new Color(35, 49, 68);
+    private static final Color DEEP_INDIGO = new Color(57, 43, 83);
+    private static final Color BLUE = new Color(224, 112, 77);
+    private static final Color MUTED = new Color(116, 105, 120);
+    private static final Color BACKGROUND = new Color(249, 244, 241);
+    private static final Color SURFACE_BORDER = new Color(232, 218, 211);
+    private static final Color MAPS_DARK = new Color(48, 39, 56);
+    private static final Color MAPS_PANEL = new Color(67, 51, 63);
+    private static final Color MAPS_TEXT = new Color(255, 239, 226);
+    private static final Color MAPS_MUTED = new Color(207, 184, 180);
     private static final int MAP_SIZE = 64;
 
     private final JFrame frame = new JFrame("Flight Planner");
+    private final CardLayout pageLayout = new CardLayout();
+    private final JPanel pages = new JPanel(pageLayout);
+    private HomeBackgroundPanel homeBackgroundPanel;
     private final BufferedImage coverImage = loadCoverImage();
+    private final BufferedImage homeBackgroundImage = loadImage("horizonbackground.png");
+    private final BufferedImage homePlaneImage = loadImage("startscreenplanepng.png");
+    private final BufferedImage mapsCardIcon = loadImage("mapicon.png");
+    private final BufferedImage statsCardIcon = loadImage("info.png");
     private final JTextField modelField = new JTextField("Boeing 747");
     private final JTextField maxSpeedField = new JTextField("900");
     private final JTextField cruiseSpeedField = new JTextField("850");
@@ -63,20 +78,46 @@ public class UserInterface {
     private final JLabel effectiveSpeedResult = resultValue();
     private final JLabel effectiveDirectionResult = resultValue();
     private final JLabel weatherDangerResult = resultValue();
+    private boolean routeDragActive;
+    private final Timer routeDragUpdateTimer = new Timer(60, event -> {
+        if (routeDragActive) {
+            refreshFlightPath();
+            calculate(false);
+        } else {
+            ((Timer) event.getSource()).stop();
+        }
+    });
     private final Map<PathFinder.RouteStrategy, JButton> mainRouteButtons =
             new EnumMap<>(PathFinder.RouteStrategy.class);
     private final Map<PathFinder.RouteStrategy, List<JButton>> mapRouteButtons =
             new EnumMap<>(PathFinder.RouteStrategy.class);
     private final List<MapCanvas> mapCanvases = new ArrayList<>();
     private PathFinder.RouteStrategy selectedRouteStrategy = PathFinder.RouteStrategy.RECOMMENDED;
-    private JDialog mapsDialog;
+    private JPanel mapsPage;
 
     private UserInterface() {
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setMinimumSize(new java.awt.Dimension(680, 640));
-        frame.setSize(760, 700);
+        frame.setSize(900, 760);
         frame.setLocationByPlatform(true);
 
+        pages.add(createHomePage(), "home");
+        pages.add(createStatsPage(), "stats");
+        frame.setContentPane(pages);
+        pageLayout.show(pages, "home");
+        calculate();
+    }
+
+    private int readEndpointCoordinate(JTextField field) {
+        try {
+            int coordinate = Integer.parseInt(field.getText().trim());
+            return isMapCoordinate(coordinate) ? coordinate : -1;
+        } catch (NumberFormatException error) {
+            return -1;
+        }
+    }
+
+    private JPanel createStatsPage() {
         JPanel content = new PageBackgroundPanel(coverImage);
         content.setLayout(new BorderLayout(0, 18));
         content.setBorder(BorderFactory.createEmptyBorder(24, 28, 28, 28));
@@ -87,9 +128,7 @@ public class UserInterface {
         body.add(createInputs(), BorderLayout.CENTER);
         body.add(createResults(), BorderLayout.SOUTH);
         content.add(body, BorderLayout.CENTER);
-
-        frame.setContentPane(content);
-        calculate();
+        return content;
     }
 
     public static void launch() {
@@ -103,19 +142,87 @@ public class UserInterface {
     }
 
     private static BufferedImage loadCoverImage() {
+        return loadImage("planecoverimage.png");
+    }
+
+    private static BufferedImage loadImage(String fileName) {
         try {
-            var imageUrl = UserInterface.class.getResource("/planecoverimage.png");
+            var imageUrl = UserInterface.class.getResource("/" + fileName);
             if (imageUrl == null) {
-                throw new IllegalStateException("Could not find planecoverimage.png on the application classpath.");
+                throw new IllegalStateException("Could not find " + fileName + " on the application classpath.");
             }
             BufferedImage image = ImageIO.read(imageUrl);
             if (image == null) {
-                throw new IllegalStateException("planecoverimage.png is not a supported image.");
+                throw new IllegalStateException(fileName + " is not a supported image.");
             }
             return image;
         } catch (IOException error) {
-            throw new IllegalStateException("Could not load planecoverimage.png.", error);
+            throw new IllegalStateException("Could not load " + fileName + ".", error);
         }
+    }
+
+    private JPanel createHomePage() {
+        homeBackgroundPanel = new HomeBackgroundPanel(homeBackgroundImage, homePlaneImage);
+        HomeBackgroundPanel home = homeBackgroundPanel;
+        home.setLayout(new BorderLayout(0, 24));
+        home.setBorder(BorderFactory.createEmptyBorder(34, 44, 38, 44));
+
+        JLabel eyebrow = new JLabel("FLIGHT PLANNER");
+        eyebrow.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 13));
+        eyebrow.setForeground(new Color(235, 237, 255));
+        JLabel title = new JLabel("Plan your next journey");
+        title.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 34));
+        title.setForeground(Color.WHITE);
+        JLabel subtitle = new JLabel("Explore your maps or review flight conditions and stats.");
+        subtitle.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 16));
+        subtitle.setForeground(new Color(230, 231, 247));
+
+        JPanel intro = new JPanel(new GridLayout(3, 1, 0, 8));
+        intro.setOpaque(false);
+        intro.add(eyebrow);
+        intro.add(title);
+        intro.add(subtitle);
+        home.add(intro, BorderLayout.NORTH);
+
+        JPanel choices = new JPanel(new GridLayout(1, 2, 18, 0));
+        choices.setOpaque(false);
+        choices.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+        choices.add(createHomeChoice("MAPS", "View topography, wind, and precipitation.",
+                () -> showMaps()));
+        choices.add(createHomeChoice("STATS", "Review aircraft details and selected-cell conditions.",
+                () -> pageLayout.show(pages, "stats")));
+        home.add(choices, BorderLayout.SOUTH);
+        return home;
+    }
+
+    private JPanel createHomeChoice(String title, String description, Runnable action) {
+        HomeChoiceCard choice = new HomeChoiceCard();
+        choice.setBackground(new Color(255, 250, 247, 242));
+        choice.setBorder(BorderFactory.createEmptyBorder(22, 22, 22, 22));
+
+        JLabel heading = new JLabel(title);
+        heading.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 20));
+        heading.setForeground(NAVY);
+        BufferedImage iconImage = title.equals("MAPS") ? mapsCardIcon : statsCardIcon;
+        JLabel icon = new JLabel(new ImageIcon(iconImage.getScaledInstance(42, 42, java.awt.Image.SCALE_SMOOTH)));
+        icon.setToolTipText(title + " icon");
+        JPanel cardHeading = new JPanel(new BorderLayout());
+        cardHeading.setOpaque(false);
+        cardHeading.add(heading, BorderLayout.WEST);
+        cardHeading.add(icon, BorderLayout.EAST);
+        JLabel detail = new JLabel("<html><div style='width:230px'>" + description + "</div></html>");
+        detail.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 13));
+        detail.setForeground(MUTED);
+        JButton openButton = new AnimatedButton("OPEN " + title + "  →");
+        styleActionButton(openButton, BLUE);
+        openButton.setBorder(BorderFactory.createEmptyBorder(10, 14, 10, 14));
+        openButton.addActionListener(event -> action.run());
+
+        choice.add(cardHeading, BorderLayout.NORTH);
+        choice.add(detail, BorderLayout.CENTER);
+        choice.add(openButton, BorderLayout.SOUTH);
+        choice.installHoverListeners();
+        return choice;
     }
 
     private JPanel createHeader() {
@@ -125,18 +232,26 @@ public class UserInterface {
         JLabel title = new JLabel("FLIGHT PLANNER");
         title.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 25));
         title.setForeground(NAVY);
-        JButton viewMapsButton = new JButton("VIEW MAPS");
+        JButton homeButton = new AnimatedButton("HOME");
+        styleActionButton(homeButton, DEEP_INDIGO);
+        homeButton.setBorder(BorderFactory.createEmptyBorder(10, 14, 10, 14));
+        homeButton.addActionListener(event -> showHome());
+        JButton viewMapsButton = new AnimatedButton("VIEW MAPS");
         viewMapsButton.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 12));
         styleActionButton(viewMapsButton, BLUE);
         viewMapsButton.setBorder(BorderFactory.createEmptyBorder(10, 16, 10, 16));
         viewMapsButton.addActionListener(event -> showMaps());
+        JPanel actions = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 8, 0));
+        actions.setOpaque(false);
+        actions.add(homeButton);
+        actions.add(viewMapsButton);
         JPanel titleRow = new JPanel(new BorderLayout());
         titleRow.setOpaque(false);
         titleRow.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(2, 0, 2, 0, DEEP_INDIGO),
                 BorderFactory.createEmptyBorder(10, 0, 10, 0)));
         titleRow.add(title, BorderLayout.WEST);
-        titleRow.add(viewMapsButton, BorderLayout.EAST);
+        titleRow.add(actions, BorderLayout.EAST);
 
         JPanel routeOptions = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 5, 2));
         routeOptions.setOpaque(false);
@@ -157,11 +272,11 @@ public class UserInterface {
 
     private void addRouteOption(JPanel panel, ButtonGroup group, String label,
             PathFinder.RouteStrategy strategy) {
-        JButton button = new JButton(label);
+        JButton button = new AnimatedButton(label);
         button.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 10));
         button.setFocusPainted(false);
         button.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
-        button.setOpaque(true);
+        button.setOpaque(false);
         button.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
         button.setSelected(strategy == selectedRouteStrategy);
         styleRouteOption(button, strategy == selectedRouteStrategy);
@@ -213,7 +328,7 @@ public class UserInterface {
     }
 
     private void styleRouteOption(JButton button, boolean selected) {
-        button.setBackground(selected ? DEEP_INDIGO : new Color(231, 234, 245));
+        button.setBackground(selected ? DEEP_INDIGO : new Color(239, 231, 235));
         button.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(selected ? DEEP_INDIGO : SURFACE_BORDER, 1, true),
                 BorderFactory.createEmptyBorder(7, 10, 7, 10)));
@@ -225,47 +340,68 @@ public class UserInterface {
     }
 
     private void showMaps() {
-        if (mapsDialog != null && mapsDialog.isDisplayable()) {
-            mapsDialog.dispose();
+        if (mapsPage != null) {
+            pages.remove(mapsPage);
         }
-
-        mapsDialog = new JDialog(frame, "Flight Planner Maps", false);
-        mapsDialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 
         mapRouteButtons.clear();
         mapCanvases.clear();
         Route route = calculateSelectedRoute();
 
         JTabbedPane tabs = new JTabbedPane();
-        tabs.setBackground(BACKGROUND);
-        tabs.setForeground(NAVY);
+        tabs.setBackground(MAPS_PANEL);
+        tabs.setForeground(MAPS_TEXT);
         tabs.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         tabs.addTab("Topographic", createMapTab(
                 "Elevation map", "Green is low land, yellow/red is higher terrain, blue is below sea level; selected route is overlaid.",
                 createMapCanvas(MapKind.TERRAIN, route)));
         tabs.addTab("Wind", createMapTab(
-                "Wind map", "Arrows show wind direction and speed; selected route is overlaid.",
+                "Wind map", "Green is land, blue is ocean, and the gray overlay darkens with wind speed; arrows show direction.",
                 createMapCanvas(MapKind.WIND, route)));
         tabs.addTab("Precipitation", createMapTab(
-                "Precipitation map", "Darker blue indicates higher precipitation chance; selected route is overlaid.",
+                "Precipitation map", "Green is land, blue is ocean, and the blue overlay darkens with precipitation chance.",
                 createMapCanvas(MapKind.PRECIPITATION, route)));
-        mapsDialog.setContentPane(tabs);
-        mapsDialog.setSize(850, 790);
-        mapsDialog.setLocationRelativeTo(frame);
-        mapsDialog.setVisible(true);
+        tabs.addTab("Danger", createMapTab(
+                "Weather danger map", "Green is lower danger, yellow is moderate, and red is higher weather danger.",
+                createMapCanvas(MapKind.DANGER, route)));
+
+        mapsPage = new JPanel(new BorderLayout(0, 12));
+        mapsPage.setBackground(MAPS_DARK);
+        mapsPage.setBorder(BorderFactory.createEmptyBorder(20, 24, 24, 24));
+        JButton backButton = new AnimatedButton("← HOME");
+        styleActionButton(backButton, DEEP_INDIGO);
+        backButton.addActionListener(event -> showHome());
+        JLabel title = new JLabel("FLIGHT MAPS");
+        title.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 22));
+        title.setForeground(MAPS_TEXT);
+        JPanel mapHeader = new JPanel(new BorderLayout());
+        mapHeader.setOpaque(false);
+        mapHeader.add(title, BorderLayout.WEST);
+        mapHeader.add(backButton, BorderLayout.EAST);
+        mapsPage.add(mapHeader, BorderLayout.NORTH);
+        mapsPage.add(tabs, BorderLayout.CENTER);
+        pages.add(mapsPage, "maps");
+        pageLayout.show(pages, "maps");
+        pages.revalidate();
+        pages.repaint();
+    }
+
+    private void showHome() {
+        homeBackgroundPanel.restartAnimation();
+        pageLayout.show(pages, "home");
     }
 
     private JPanel createMapTab(String title, String description, MapCanvas mapCanvas) {
         JPanel tab = new JPanel(new BorderLayout(0, 8));
-        tab.setBackground(BACKGROUND);
+        tab.setBackground(MAPS_PANEL);
         tab.setBorder(BorderFactory.createEmptyBorder(16, 18, 18, 18));
 
         JLabel heading = new JLabel(title);
         heading.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 18));
-        heading.setForeground(NAVY);
+        heading.setForeground(MAPS_TEXT);
         JLabel help = new JLabel(description);
         help.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 13));
-        help.setForeground(MUTED);
+        help.setForeground(MAPS_MUTED);
 
         JPanel labels = new JPanel(new GridLayout(2, 1, 0, 3));
         labels.setOpaque(false);
@@ -282,7 +418,11 @@ public class UserInterface {
     }
 
     private MapCanvas createMapCanvas(MapKind kind, Route route) {
-        MapCanvas canvas = new MapCanvas(pathFinder, kind, route);
+        MapCanvas canvas = new MapCanvas(
+                pathFinder, kind, route,
+                readEndpointCoordinate(startXField), readEndpointCoordinate(startYField),
+                readEndpointCoordinate(destinationXField), readEndpointCoordinate(destinationYField),
+                this::handleRouteEndpointChange);
         mapCanvases.add(canvas);
         return canvas;
     }
@@ -298,10 +438,10 @@ public class UserInterface {
     }
 
     private void addMapRouteOption(JPanel panel, ButtonGroup group, PathFinder.RouteStrategy strategy) {
-        JButton button = new JButton(routeLabel(strategy));
+        JButton button = new AnimatedButton(routeLabel(strategy));
         button.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 10));
         button.setFocusPainted(false);
-        button.setOpaque(true);
+        button.setOpaque(false);
         button.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
         button.setSelected(strategy == selectedRouteStrategy);
         styleRouteOption(button, strategy == selectedRouteStrategy);
@@ -316,7 +456,7 @@ public class UserInterface {
             Route route = calculateRoute(selectedRouteStrategy);
             if (route != null && selectedRouteStrategy == PathFinder.RouteStrategy.RECOMMENDED
                     && hasDangerAboveLimit(route)) {
-                statusLabel.setText("No route met the 30% danger limit; showing the safest available route.");
+                statusLabel.setText("No route met the 10% danger limit; showing the safest available route.");
             }
             return route;
         } catch (IllegalArgumentException error) {
@@ -328,7 +468,7 @@ public class UserInterface {
     private boolean hasDangerAboveLimit(Route route) {
         for (double[] coordinate : route.getRoute()) {
             Weather weather = pathFinder.getWeatherAt((int) coordinate[0], (int) coordinate[1]);
-            if (weather.getDanger() > 0.3) {
+            if (weather.getDanger() > PathFinder.RECOMMENDED_MAX_DANGER) {
                 return true;
             }
         }
@@ -336,14 +476,36 @@ public class UserInterface {
     }
 
     private void refreshFlightPath() {
-        if (mapsDialog == null || !mapsDialog.isDisplayable()) {
+        if (mapsPage == null || !mapsPage.isShowing()) {
             return;
         }
         Route route = calculateSelectedRoute();
         for (MapCanvas canvas : mapCanvases) {
             canvas.setRoute(route);
+            canvas.setEndpoints(
+                    readEndpointCoordinate(startXField), readEndpointCoordinate(startYField),
+                    readEndpointCoordinate(destinationXField), readEndpointCoordinate(destinationYField));
         }
         updateRouteButtonStyles(mapRouteButtons);
+    }
+
+    private void handleRouteEndpointChange(Endpoint endpoint, int x, int y, boolean dragging) {
+        JTextField xField = endpoint == Endpoint.START ? startXField : destinationXField;
+        JTextField yField = endpoint == Endpoint.START ? startYField : destinationYField;
+        xField.setText(Integer.toString(x));
+        yField.setText(Integer.toString(y));
+        gridXField.setText(Integer.toString(x));
+        gridYField.setText(Integer.toString(y));
+        routeDragActive = dragging;
+        if (dragging) {
+            if (!routeDragUpdateTimer.isRunning()) {
+                routeDragUpdateTimer.start();
+            }
+        } else {
+            routeDragUpdateTimer.stop();
+            refreshFlightPath();
+            calculate(false);
+        }
     }
 
     private JPanel createInputs() {
@@ -437,7 +599,271 @@ public class UserInterface {
         }
     }
 
-    private static final class SurfacePanel extends JPanel {
+    private static final class HomeBackgroundPanel extends JPanel {
+        private static final long serialVersionUID = 1L;
+        private static final int ANIMATION_DURATION_MS = 1700;
+        private final transient BufferedImage backgroundImage;
+        private final transient BufferedImage planeImage;
+        private final Timer animationTimer;
+        private long animationStart;
+        private transient BufferedImage scaledBackground;
+        private transient BufferedImage scaledPlane;
+        private int cachedWidth = -1;
+        private int cachedHeight = -1;
+
+        private HomeBackgroundPanel(BufferedImage backgroundImage, BufferedImage planeImage) {
+            this.backgroundImage = backgroundImage;
+            this.planeImage = planeImage;
+            setOpaque(true);
+            animationTimer = new Timer(16, event -> {
+                repaint();
+                if (System.nanoTime() - animationStart >= ANIMATION_DURATION_MS * 1_000_000L) {
+                    ((Timer) event.getSource()).stop();
+                }
+            });
+            restartAnimation();
+        }
+
+        private void restartAnimation() {
+            animationStart = System.nanoTime();
+            if (!animationTimer.isRunning()) {
+                animationTimer.start();
+            }
+            repaint();
+        }
+
+        @Override
+        protected void paintComponent(Graphics graphics) {
+            super.paintComponent(graphics);
+            int width = getWidth();
+            int height = getHeight();
+            if (width <= 0 || height <= 0) {
+                return;
+            }
+
+            updateScaledImages(width, height);
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.setColor(DEEP_INDIGO);
+            g.fillRect(0, 0, width, height);
+            g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.30f));
+            g.drawImage(scaledBackground, 0, 0, null);
+
+            double progress = Math.min(1.0,
+                    (System.nanoTime() - animationStart) / (ANIMATION_DURATION_MS * 1_000_000.0));
+            double easedProgress = progress < 0.5
+                    ? 4 * progress * progress * progress
+                    : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+            int planeWidth = scaledPlane.getWidth();
+            int planeHeight = scaledPlane.getHeight();
+            int finalX = (int) (width * 0.58 - planeWidth / 2.0);
+            int finalY = (int) (height * 0.48 - planeHeight / 2.0);
+            int startX = -planeWidth + (int) (planeWidth * 0.18);
+            int startY = height + (int) (planeHeight * 0.08);
+            int planeX = startX + (int) ((finalX - startX) * easedProgress);
+            int planeY = startY + (int) ((finalY - startY) * easedProgress);
+            g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.40f));
+            g.drawImage(scaledPlane, planeX, planeY, null);
+            g.dispose();
+        }
+
+        private void updateScaledImages(int width, int height) {
+            if (width == cachedWidth && height == cachedHeight) {
+                return;
+            }
+
+            cachedWidth = width;
+            cachedHeight = height;
+
+            scaledBackground = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+            Graphics2D backgroundGraphics = scaledBackground.createGraphics();
+            backgroundGraphics.setRenderingHint(
+                    RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+            backgroundGraphics.drawImage(backgroundImage, 0, 0, width, height, null);
+            backgroundGraphics.dispose();
+
+            int planeSize = Math.max(1, Math.min((int) (width * 0.40), (int) (height * 0.46)));
+            scaledPlane = new BufferedImage(planeSize, planeSize, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D planeGraphics = scaledPlane.createGraphics();
+            planeGraphics.setRenderingHint(
+                    RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+            planeGraphics.drawImage(planeImage, 0, 0, planeSize, planeSize, null);
+            planeGraphics.dispose();
+        }
+    }
+
+    private static final class HomeChoiceCard extends JPanel {
+        private static final long serialVersionUID = 1L;
+        private static final double HOVER_SCALE = 1.045;
+        private static final int CORNER_RADIUS = 20;
+        private static final int RESTING_SURFACE_INSET = 6;
+        private double scale = 1.0;
+        private double targetScale = 1.0;
+        private Timer hoverTimer;
+        private final transient MouseAdapter hoverListener;
+
+        private HomeChoiceCard() {
+            super(new BorderLayout(0, 12));
+            setOpaque(false);
+            hoverListener = new MouseAdapter() {
+                @Override
+                public void mouseEntered(MouseEvent event) {
+                    setHovered(true);
+                }
+
+                @Override
+                public void mouseExited(MouseEvent event) {
+                    java.awt.Point point = SwingUtilities.convertPoint(
+                            event.getComponent(), event.getPoint(), HomeChoiceCard.this);
+                    setHovered(contains(point));
+                }
+            };
+        }
+
+        private void installHoverListeners() {
+            addMouseListenerToTree(this, hoverListener);
+        }
+
+        private static void addMouseListenerToTree(
+                java.awt.Container container, MouseAdapter listener) {
+            container.addMouseListener(listener);
+            for (java.awt.Component child : container.getComponents()) {
+                child.addMouseListener(listener);
+                if (child instanceof java.awt.Container childContainer) {
+                    for (java.awt.Component grandchild : childContainer.getComponents()) {
+                        if (grandchild instanceof java.awt.Container grandchildContainer) {
+                            addMouseListenerToTree(grandchildContainer, listener);
+                        } else {
+                            grandchild.addMouseListener(listener);
+                        }
+                    }
+                }
+            }
+        }
+
+        private void setHovered(boolean hovered) {
+            targetScale = hovered ? HOVER_SCALE : 1.0;
+            if (hoverTimer == null) {
+                hoverTimer = new Timer(16, event -> {
+                    double difference = targetScale - scale;
+                    if (Math.abs(difference) < 0.002) {
+                        scale = targetScale;
+                        hoverTimer.stop();
+                    } else {
+                        scale += difference * 0.28;
+                    }
+                    repaint();
+                });
+            }
+            if (!hoverTimer.isRunning()) {
+                hoverTimer.start();
+            }
+        }
+
+        @Override
+        protected void paintComponent(Graphics graphics) {
+            super.paintComponent(graphics);
+            int inset = (int) Math.round(
+                    RESTING_SURFACE_INSET * (HOVER_SCALE - scale) / (HOVER_SCALE - 1));
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setColor(getBackground());
+            g.fillRoundRect(
+                    inset, inset, getWidth() - inset * 2 - 1, getHeight() - inset * 2 - 1,
+                    CORNER_RADIUS, CORNER_RADIUS);
+            g.dispose();
+        }
+
+        @Override
+        protected void paintBorder(Graphics graphics) {
+            int inset = (int) Math.round(
+                    RESTING_SURFACE_INSET * (HOVER_SCALE - scale) / (HOVER_SCALE - 1));
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setColor(SURFACE_BORDER);
+            g.drawRoundRect(
+                    inset, inset, getWidth() - inset * 2 - 1, getHeight() - inset * 2 - 1,
+                    CORNER_RADIUS, CORNER_RADIUS);
+            g.dispose();
+        }
+
+        @Override
+        protected void paintChildren(Graphics graphics) {
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.translate(getWidth() * (1 - scale) / 2, getHeight() * (1 - scale) / 2);
+            g.scale(scale, scale);
+            super.paintChildren(g);
+            g.dispose();
+        }
+    }
+
+    private static final class AnimatedButton extends JButton {
+        private static final long serialVersionUID = 1L;
+        private static final double RESTING_SCALE = 0.94;
+        private double scale = RESTING_SCALE;
+        private double targetScale = RESTING_SCALE;
+        private Timer hoverTimer;
+
+        private AnimatedButton(String text) {
+            super(text);
+            setOpaque(false);
+            setContentAreaFilled(false);
+            setBorderPainted(false);
+            setFocusPainted(false);
+            setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+            addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseEntered(MouseEvent event) {
+                    animateTo(1.0);
+                }
+
+                @Override
+                public void mouseExited(MouseEvent event) {
+                    animateTo(RESTING_SCALE);
+                }
+            });
+        }
+
+        private void animateTo(double nextScale) {
+            targetScale = nextScale;
+            if (hoverTimer == null) {
+                hoverTimer = new Timer(16, event -> {
+                    double difference = targetScale - scale;
+                    if (Math.abs(difference) < 0.002) {
+                        scale = targetScale;
+                        hoverTimer.stop();
+                    } else {
+                        scale += difference * 0.35;
+                    }
+                    repaint();
+                });
+            }
+            if (!hoverTimer.isRunning()) {
+                hoverTimer.start();
+            }
+        }
+
+        @Override
+        protected void paintComponent(Graphics graphics) {
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+            int buttonWidth = (int) Math.round(getWidth() * scale);
+            int buttonHeight = (int) Math.round(getHeight() * scale);
+            int x = (getWidth() - buttonWidth) / 2;
+            int y = (getHeight() - buttonHeight) / 2;
+            g.setColor(getBackground());
+            g.fillRoundRect(x, y, buttonWidth, buttonHeight, 12, 12);
+            g.setColor(getModel().isSelected() ? getBackground() : SURFACE_BORDER);
+            g.drawRoundRect(x, y, buttonWidth - 1, buttonHeight - 1, 12, 12);
+
+            g.translate(getWidth() * (1.0 - scale) / 2.0, getHeight() * (1.0 - scale) / 2.0);
+            g.scale(scale, scale);
+            super.paintComponent(g);
+            g.dispose();
+        }
+    }
+
+    private static class SurfacePanel extends JPanel {
         private static final long serialVersionUID = 1L;
         private final int cornerRadius;
 
@@ -445,7 +871,7 @@ public class UserInterface {
             super(layout);
             this.cornerRadius = cornerRadius;
             setOpaque(false);
-            setBackground(Color.WHITE);
+            setBackground(new Color(255, 250, 247, 242));
         }
 
         @Override
@@ -532,7 +958,7 @@ public class UserInterface {
         cards.add(createResultCard("EFFECTIVE DIRECTION", effectiveDirectionResult));
         cards.add(createResultCard("WEATHER DANGER", weatherDangerResult));
 
-        JButton calculateButton = new JButton("Calculate");
+        JButton calculateButton = new AnimatedButton("Calculate");
         calculateButton.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 13));
         styleActionButton(calculateButton, BLUE);
         calculateButton.setBorder(BorderFactory.createEmptyBorder(10, 20, 10, 20));
@@ -571,7 +997,7 @@ public class UserInterface {
     private void styleTextField(JTextField field) {
         field.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 13));
         field.setForeground(NAVY);
-        field.setBackground(new Color(250, 251, 254));
+        field.setBackground(new Color(255, 251, 249));
         field.setCaretColor(BLUE);
         field.setMargin(new Insets(8, 10, 8, 10));
         field.setBorder(BorderFactory.createCompoundBorder(
@@ -583,7 +1009,7 @@ public class UserInterface {
         button.setForeground(Color.WHITE);
         button.setBackground(background);
         button.setFocusPainted(false);
-        button.setOpaque(true);
+        button.setOpaque(false);
         button.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
     }
 
@@ -595,6 +1021,10 @@ public class UserInterface {
     }
 
     private void calculate() {
+        calculate(true);
+    }
+
+    private void calculate(boolean showValidationDialog) {
         try {
             clearResults();
             statusLabel.setText(" ");
@@ -640,7 +1070,12 @@ public class UserInterface {
             weatherDangerResult.setText(format.format(weather.getDanger() * 100) + "%");
             statusLabel.setText("Conditions loaded from map cell (" + gridX + ", " + gridY + ").");
         } catch (IllegalArgumentException error) {
-            JOptionPane.showMessageDialog(frame, error.getMessage(), "Check flight details", JOptionPane.WARNING_MESSAGE);
+            if (showValidationDialog) {
+                JOptionPane.showMessageDialog(
+                        frame, error.getMessage(), "Check flight details", JOptionPane.WARNING_MESSAGE);
+            } else {
+                statusLabel.setText(error.getMessage());
+            }
         }
     }
 
@@ -722,19 +1157,48 @@ public class UserInterface {
     private enum MapKind {
         TERRAIN,
         WIND,
-        PRECIPITATION
+        PRECIPITATION,
+        DANGER
+    }
+
+    private enum Endpoint {
+        START,
+        DESTINATION
+    }
+
+    @FunctionalInterface
+    private interface EndpointDragListener {
+        void endpointMoved(Endpoint endpoint, int x, int y, boolean dragging);
+    }
+
+    private static final class MapBounds {
+        private final int x;
+        private final int y;
+        private final int size;
+
+        private MapBounds(int x, int y, int size) {
+            this.x = x;
+            this.y = y;
+            this.size = size;
+        }
     }
 
     private static final class MapCanvas extends JPanel {
         private static final long serialVersionUID = 1L;
 
         private final MapKind kind;
+        private final transient EndpointDragListener endpointDragListener;
         private final double[][] terrain = new double[MAP_SIZE][MAP_SIZE];
         private final double[][] windSpeeds = new double[MAP_SIZE][MAP_SIZE];
         private final double[][] windDirections = new double[MAP_SIZE][MAP_SIZE];
         private final double[][] precipitation = new double[MAP_SIZE][MAP_SIZE];
         private final double[][] weatherDanger = new double[MAP_SIZE][MAP_SIZE];
         private double[][] routeCoordinates;
+        private int startX;
+        private int startY;
+        private int destinationX;
+        private int destinationY;
+        private Endpoint draggedEndpoint;
         private final double minimumElevation;
         private final double averageElevation;
         private final double maximumElevation;
@@ -744,25 +1208,36 @@ public class UserInterface {
         private final double minimumPrecipitation;
         private final double averagePrecipitation;
         private final double maximumPrecipitation;
+        private final double minimumDanger;
+        private final double averageDanger;
+        private final double maximumDanger;
 
-        private MapCanvas(PathFinder pathFinder, MapKind kind) {
-            this(pathFinder, kind, null);
-        }
-
-        private MapCanvas(PathFinder pathFinder, MapKind kind, Route route) {
+        private MapCanvas(
+                PathFinder pathFinder, MapKind kind, Route route,
+                int startX, int startY, int destinationX, int destinationY,
+                EndpointDragListener endpointDragListener) {
             this.kind = kind;
             this.routeCoordinates = route == null ? null : route.getRoute();
-            setBackground(Color.WHITE);
+            this.startX = startX;
+            this.startY = startY;
+            this.destinationX = destinationX;
+            this.destinationY = destinationY;
+            this.endpointDragListener = endpointDragListener;
+            setBackground(MAPS_DARK);
             setPreferredSize(new java.awt.Dimension(680, 650));
+            installEndpointDragging();
             double elevationSum = 0;
             double windSpeedSum = 0;
             double precipitationSum = 0;
+            double dangerSum = 0;
             double lowestElevation = Double.POSITIVE_INFINITY;
             double highestElevation = Double.NEGATIVE_INFINITY;
             double lowestWindSpeed = Double.POSITIVE_INFINITY;
             double highestWindSpeed = Double.NEGATIVE_INFINITY;
             double lowestPrecipitation = Double.POSITIVE_INFINITY;
             double highestPrecipitation = Double.NEGATIVE_INFINITY;
+            double lowestDanger = Double.POSITIVE_INFINITY;
+            double highestDanger = Double.NEGATIVE_INFINITY;
             for (int y = 0; y < MAP_SIZE; y++) {
                 for (int x = 0; x < MAP_SIZE; x++) {
                     terrain[y][x] = pathFinder.getTerrainAt(x, y);
@@ -775,12 +1250,15 @@ public class UserInterface {
                     elevationSum += terrain[y][x];
                     windSpeedSum += windSpeeds[y][x];
                     precipitationSum += precipitation[y][x];
+                    dangerSum += weatherDanger[y][x];
                     lowestElevation = Math.min(lowestElevation, terrain[y][x]);
                     highestElevation = Math.max(highestElevation, terrain[y][x]);
                     lowestWindSpeed = Math.min(lowestWindSpeed, windSpeeds[y][x]);
                     highestWindSpeed = Math.max(highestWindSpeed, windSpeeds[y][x]);
                     lowestPrecipitation = Math.min(lowestPrecipitation, precipitation[y][x]);
                     highestPrecipitation = Math.max(highestPrecipitation, precipitation[y][x]);
+                    lowestDanger = Math.min(lowestDanger, weatherDanger[y][x]);
+                    highestDanger = Math.max(highestDanger, weatherDanger[y][x]);
                 }
             }
             int cellCount = MAP_SIZE * MAP_SIZE;
@@ -793,10 +1271,126 @@ public class UserInterface {
             minimumPrecipitation = lowestPrecipitation;
             averagePrecipitation = precipitationSum / cellCount;
             maximumPrecipitation = highestPrecipitation;
+            minimumDanger = lowestDanger;
+            averageDanger = dangerSum / cellCount;
+            maximumDanger = highestDanger;
+        }
+
+        private void installEndpointDragging() {
+            addMouseListener(new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent event) {
+                    MapBounds bounds = mapBounds();
+                    draggedEndpoint = bounds.size > 0
+                            ? endpointAt(event.getX(), event.getY(), bounds)
+                            : null;
+                    if (draggedEndpoint != null) {
+                        setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.MOVE_CURSOR));
+                    }
+                }
+
+                @Override
+                public void mouseReleased(MouseEvent event) {
+                    if (draggedEndpoint != null) {
+                        Endpoint movedEndpoint = draggedEndpoint;
+                        int movedX = endpointX(movedEndpoint);
+                        int movedY = endpointY(movedEndpoint);
+                        draggedEndpoint = null;
+                        setCursor(java.awt.Cursor.getDefaultCursor());
+                        endpointDragListener.endpointMoved(movedEndpoint, movedX, movedY, false);
+                    }
+                }
+            });
+            addMouseMotionListener(new MouseAdapter() {
+                @Override
+                public void mouseDragged(MouseEvent event) {
+                    if (draggedEndpoint == null) {
+                        return;
+                    }
+                    MapBounds bounds = mapBounds();
+                    if (bounds.size <= 0) {
+                        return;
+                    }
+                    int x = clamp((event.getX() - bounds.x) * MAP_SIZE / bounds.size, 0, MAP_SIZE - 1);
+                    int y = clamp((event.getY() - bounds.y) * MAP_SIZE / bounds.size, 0, MAP_SIZE - 1);
+                    setEndpoint(draggedEndpoint, x, y);
+                    repaint();
+                    endpointDragListener.endpointMoved(draggedEndpoint, x, y, true);
+                }
+
+                @Override
+                public void mouseMoved(MouseEvent event) {
+                    MapBounds bounds = mapBounds();
+                    boolean overEndpoint = endpointAt(event.getX(), event.getY(), bounds) != null;
+                    setCursor(java.awt.Cursor.getPredefinedCursor(
+                            overEndpoint ? java.awt.Cursor.HAND_CURSOR : java.awt.Cursor.DEFAULT_CURSOR));
+                }
+            });
+        }
+
+        private Endpoint endpointAt(int mouseX, int mouseY, MapBounds bounds) {
+            Endpoint nearest = null;
+            double nearestDistance = 12 * 12;
+            for (Endpoint endpoint : Endpoint.values()) {
+                int x = endpointX(endpoint);
+                int y = endpointY(endpoint);
+                if (!isValidMapCoordinate(x) || !isValidMapCoordinate(y)) {
+                    continue;
+                }
+                int markerX = bounds.x + (int) ((x + 0.5) * bounds.size / MAP_SIZE);
+                int markerY = bounds.y + (int) ((y + 0.5) * bounds.size / MAP_SIZE);
+                double distance = Math.pow(mouseX - markerX, 2) + Math.pow(mouseY - markerY, 2);
+                if (distance <= nearestDistance) {
+                    nearest = endpoint;
+                    nearestDistance = distance;
+                }
+            }
+            return nearest;
+        }
+
+        private int endpointX(Endpoint endpoint) {
+            return endpoint == Endpoint.START ? startX : destinationX;
+        }
+
+        private int endpointY(Endpoint endpoint) {
+            return endpoint == Endpoint.START ? startY : destinationY;
+        }
+
+        private void setEndpoint(Endpoint endpoint, int x, int y) {
+            if (endpoint == Endpoint.START) {
+                startX = x;
+                startY = y;
+            } else {
+                destinationX = x;
+                destinationY = y;
+            }
+        }
+
+        private MapBounds mapBounds() {
+            int footerHeight = 100;
+            int size = Math.min(getWidth() - 48, getHeight() - footerHeight - 40);
+            return new MapBounds((getWidth() - size) / 2,
+                    Math.max(8, (getHeight() - footerHeight - size) / 2), size);
+        }
+
+        private static int clamp(int value, int minimum, int maximum) {
+            return Math.max(minimum, Math.min(maximum, value));
+        }
+
+        private static boolean isValidMapCoordinate(int coordinate) {
+            return coordinate >= 0 && coordinate < MAP_SIZE;
         }
 
         private void setRoute(Route route) {
             routeCoordinates = route == null ? null : route.getRoute();
+            repaint();
+        }
+
+        private void setEndpoints(int startX, int startY, int destinationX, int destinationY) {
+            this.startX = startX;
+            this.startY = startY;
+            this.destinationX = destinationX;
+            this.destinationY = destinationY;
             repaint();
         }
 
@@ -806,14 +1400,14 @@ public class UserInterface {
             Graphics2D g = (Graphics2D) graphics.create();
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-            int footerHeight = 100;
-            int mapSize = Math.min(getWidth() - 48, getHeight() - footerHeight - 40);
+            MapBounds bounds = mapBounds();
+            int mapSize = bounds.size;
             if (mapSize <= 0) {
                 g.dispose();
                 return;
             }
-            int mapX = (getWidth() - mapSize) / 2;
-            int mapY = Math.max(8, (getHeight() - footerHeight - mapSize) / 2);
+            int mapX = bounds.x;
+            int mapY = bounds.y;
 
             for (int y = 0; y < MAP_SIZE; y++) {
                 int cellTop = mapY + y * mapSize / MAP_SIZE;
@@ -832,8 +1426,18 @@ public class UserInterface {
             if (routeCoordinates != null && routeCoordinates.length > 0) {
                 drawRoute(g, mapX, mapY, mapSize);
             }
+            if (isValidMapCoordinate(startX) && isValidMapCoordinate(startY)) {
+                drawEndpoint(g, mapX + (int) ((startX + 0.5) * mapSize / MAP_SIZE),
+                        mapY + (int) ((startY + 0.5) * mapSize / MAP_SIZE),
+                        new Color(25, 145, 75), "S");
+            }
+            if (isValidMapCoordinate(destinationX) && isValidMapCoordinate(destinationY)) {
+                drawEndpoint(g, mapX + (int) ((destinationX + 0.5) * mapSize / MAP_SIZE),
+                        mapY + (int) ((destinationY + 0.5) * mapSize / MAP_SIZE),
+                        new Color(190, 45, 45), "D");
+            }
 
-            g.setColor(new Color(45, 61, 77));
+            g.setColor(new Color(221, 194, 187));
             g.drawRect(mapX, mapY, mapSize, mapSize);
             g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
             g.drawString("0", mapX - 10, mapY + 10);
@@ -850,18 +1454,18 @@ public class UserInterface {
             int x = getWidth() - boxWidth - 12;
             int y = getHeight() - boxHeight - 8;
 
-            g.setColor(new Color(255, 255, 255, 238));
+            g.setColor(new Color(53, 42, 57, 238));
             g.fillRoundRect(x, y, boxWidth, boxHeight, 16, 16);
-            g.setColor(new Color(190, 201, 215));
+            g.setColor(new Color(180, 122, 111));
             g.drawRoundRect(x, y, boxWidth, boxHeight, 16, 16);
-            g.setColor(NAVY);
+            g.setColor(MAPS_TEXT);
             g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 10));
             g.drawString("SELECTED ROUTE", x + 12, y + 16);
             g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
             g.drawString(routeSummary(), x + 12, y + 31);
-            g.setColor(new Color(220, 224, 234));
+            g.setColor(new Color(103, 77, 84));
             g.drawLine(x + 12, y + 39, x + boxWidth - 12, y + 39);
-            g.setColor(NAVY);
+            g.setColor(MAPS_TEXT);
             g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 9));
             g.drawString(statsTitle(), x + 12, y + 53);
             g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 9));
@@ -877,6 +1481,8 @@ public class UserInterface {
                     return "WIND SPEED STATS";
                 case PRECIPITATION:
                     return "PRECIPITATION STATS";
+                case DANGER:
+                    return "WEATHER DANGER STATS";
                 default:
                     throw new IllegalStateException("Unsupported map kind: " + kind);
             }
@@ -893,6 +1499,9 @@ public class UserInterface {
                 case PRECIPITATION:
                     return String.format(java.util.Locale.ROOT, "Min %.0f%%   Avg %.0f%%   Max %.0f%%",
                             minimumPrecipitation * 100, averagePrecipitation * 100, maximumPrecipitation * 100);
+                case DANGER:
+                    return String.format(java.util.Locale.ROOT, "Min %.0f%%   Avg %.0f%%   Max %.0f%%",
+                            minimumDanger * 100, averageDanger * 100, maximumDanger * 100);
                 default:
                     throw new IllegalStateException("Unsupported map kind: " + kind);
             }
@@ -906,6 +1515,8 @@ public class UserInterface {
                     return "Generated wind field across 4,096 cells";
                 case PRECIPITATION:
                     return "Generated precipitation chance across 4,096 cells";
+                case DANGER:
+                    return "Generated weather danger across 4,096 cells";
                 default:
                     throw new IllegalStateException("Unsupported map kind: " + kind);
             }
@@ -932,10 +1543,40 @@ public class UserInterface {
         }
 
         private Color cellColor(int x, int y) {
+            if (kind == MapKind.DANGER) {
+                double danger = Math.max(0, Math.min(1, weatherDanger[y][x]));
+                Color dangerShade;
+                if (danger <= 0.05) {
+                    dangerShade = interpolate(
+                            new Color(112, 177, 118), new Color(244, 205, 96), danger / 0.05);
+                } else if (danger <= 0.10) {
+                    dangerShade = interpolate(
+                            new Color(244, 205, 96), new Color(198, 56, 54), (danger - 0.05) / 0.05);
+                } else {
+                    dangerShade = interpolate(new Color(198, 56, 54), Color.BLACK, (danger - 0.10) / 0.90);
+                }
+                return blend(surfaceColor(x, y), dangerShade, 0.65);
+            }
             if (kind == MapKind.PRECIPITATION) {
-                return interpolate(new Color(239, 247, 255), new Color(12, 74, 145), precipitation[y][x]);
+                Color precipitationShade = interpolate(
+                        new Color(239, 247, 255), new Color(12, 74, 145), precipitation[y][x]);
+                return blend(surfaceColor(x, y), precipitationShade, 0.65);
+            }
+            if (kind == MapKind.WIND) {
+                double speedRange = maximumWindSpeed - minimumWindSpeed;
+                double intensity = speedRange == 0
+                        ? 0
+                        : (windSpeeds[y][x] - minimumWindSpeed) / speedRange;
+                Color windShade = interpolate(new Color(225, 225, 225), new Color(45, 45, 45), intensity);
+                return blend(surfaceColor(x, y), windShade, 0.5);
             }
             return terrainColor(terrain[y][x]);
+        }
+
+        private Color surfaceColor(int x, int y) {
+            return terrain[y][x] < 0
+                    ? new Color(55, 145, 205)
+                    : new Color(83, 158, 92);
         }
 
         private void drawRoute(Graphics2D g, int mapX, int mapY, int mapSize) {
@@ -955,11 +1596,8 @@ public class UserInterface {
             g.setColor(Color.WHITE);
             g.drawPolyline(xPoints, yPoints, points.length);
             g.setStroke(new java.awt.BasicStroke(3, java.awt.BasicStroke.CAP_ROUND, java.awt.BasicStroke.JOIN_ROUND));
-            g.setColor(new Color(255, 115, 35));
+            g.setColor(new Color(232, 112, 70));
             g.drawPolyline(xPoints, yPoints, points.length);
-            drawEndpoint(g, xPoints[0], yPoints[0], new Color(25, 145, 75), "S");
-            drawEndpoint(g, xPoints[points.length - 1], yPoints[points.length - 1],
-                    new Color(190, 45, 45), "D");
         }
 
         private void drawEndpoint(Graphics2D g, int x, int y, Color color, String label) {
@@ -1021,6 +1659,14 @@ public class UserInterface {
                     (int) (low.getRed() + t * (high.getRed() - low.getRed())),
                     (int) (low.getGreen() + t * (high.getGreen() - low.getGreen())),
                     (int) (low.getBlue() + t * (high.getBlue() - low.getBlue())));
+        }
+
+        private static Color blend(Color base, Color overlay, double opacity) {
+            double alpha = Math.max(0, Math.min(1, opacity));
+            return new Color(
+                    (int) Math.round(base.getRed() * (1 - alpha) + overlay.getRed() * alpha),
+                    (int) Math.round(base.getGreen() * (1 - alpha) + overlay.getGreen() * alpha),
+                    (int) Math.round(base.getBlue() * (1 - alpha) + overlay.getBlue() * alpha));
         }
     }
 }
