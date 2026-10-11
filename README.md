@@ -43,3 +43,13 @@ All maps stay on the same dashboard page, fill the available width, and can scro
 - `GptProtoChatbot.java` uses Java's `HttpClient` to POST a chat request to GPTProto. Jackson's `ObjectMapper` turns Java message objects into JSON and parses GPTProto's JSON reply.
 - `GPTPROTO_API_KEY` is read with `System.getenv`, so the secret stays outside the source code. The chatbot keeps up to six exchanges in memory for follow-up questions.
 - `SwingUtilities.invokeLater` updates the chat transcript after the network thread finishes; Swing components should be changed on Swing's event-dispatch thread.
+Switching between synthetic and live weather
+On the flight dashboard, use the Weather source dropdown to switch between Normal and API:
+- Normal uses the project's existing algorithm-generated synthetic weather and wind on the 64×64 grid. It works without a WeatherAPI key and keeps the original algorithmic map behavior.
+- API fetches a current WeatherAPI snapshot at sample points over the U.S. and interpolates those readings onto the 64×64 map. It requires WEATHERAPI_KEY. The included topography CSV supplies the elevation layer in API mode too. The Refresh API button fetches a new snapshot.
+Both sources use the same map views and route display. Selecting Normal switches back to the synthetic grid; selecting API starts a live data fetch.
+Setting a route
+The route no longer needs typed start or destination coordinates. Open Flight maps, then drag the S (start) and D (destination) markers to the desired cells. The route line and flight summary update as the markers move. This works across the topography, wind, and precipitation maps; the same route is shown in each view. Click a map cell to inspect its elevation and weather conditions in the dashboard. In API mode, route markers stay within the U.S. coverage area.
+The app also uses dropdowns for the home view, aircraft preset, route strategy, and map layer. Plane presets include their maximum and cruise speeds.
+The bottom chat sends questions and current route/map context to GPTProto. HTTP errors show a useful hint for missing keys, unavailable models, rate limits, and account access problems.
+WeatherAPI is only needed for API weather. GPTProto chat needs a GPTProto API key in either weather mode.
