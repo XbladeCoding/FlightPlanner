@@ -5,6 +5,7 @@ import java.util.Random;
 
 public class PathFinder {
     private static final int GRID_SIZE = 64;
+    public static final double RECOMMENDED_MAX_DANGER = 0.05;
 
     public enum RouteStrategy {
         FASTEST,
@@ -91,7 +92,8 @@ public class PathFinder {
                 traversable[y][x] = Double.isFinite(terrainMap[y][x])
                         && terrainMap[y][x] < 2000
                         && Double.isFinite(dangerMap[y][x])
-                        && (strategy != RouteStrategy.RECOMMENDED || dangerMap[y][x] <= 0.3)
+                        && (strategy != RouteStrategy.RECOMMENDED
+                                || dangerMap[y][x] <= RECOMMENDED_MAX_DANGER)
                         && Double.isFinite(effectiveSpeedMap[y][x])
                         && effectiveSpeedMap[y][x] > 0;
             }

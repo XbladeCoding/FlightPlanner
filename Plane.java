@@ -16,12 +16,12 @@ public class Plane {
     }
 
     public void accelerate(double speed) {
-        if (speed <= maxSpeed) {
-            this.currentSpeed = speed;
-            fuelCapacity -= speed / efficiency; // Decrease fuel based on speed and efficiency
-        } else {
-            System.out.println("Aircraft is at maximum speed.");
+        if (!Double.isFinite(speed) || speed < 0 || speed > maxSpeed) {
+            throw new IllegalArgumentException(
+                    "Speed must be within the allowed range [0, " + maxSpeed + "].");
         }
+        this.currentSpeed = speed;
+        fuelCapacity -= speed / efficiency; // Decrease fuel based on speed and efficiency
     }
 
     public void travel(double distance) {
