@@ -1,12 +1,13 @@
 import java.util.Arrays;
 import java.util.PriorityQueue;
 import java.util.LinkedList;
+import java.util.Random;
 
 public class PathFinder {
-    Weather[][] weatherMap = new Weather[64][64];
-    Wind[][] windMap = new Wind[64][64];
-    double[][] terrainMap = new double[64][64];
-    double[][] effectiveSpeedMap = new double[64][64];
+    private Weather[][] weatherMap = ArrayGen.generate64x64Weather(new Random().nextLong());
+    private Wind[][] windMap = ArrayGen.generate64x64Wind(new Random().nextLong());
+    private double[][] terrainMap = ArrayGen.generate64x64Terrain(new Random().nextLong());
+    private double[][] effectiveSpeedMap = new double[64][64];
 
     public double[][] generateDangerMap() {
         double[][] dangerMap = new double[64][64];
@@ -28,8 +29,65 @@ public class PathFinder {
         return effectiveSpeedMap;
     }
 
-    public double[][] plotRoute(Plane plane, int startX, int startY, int endX, int endY, double[][] dangerMap) {
+    private double computeOptimalTravelSpeed(Plane plane, double routeDistance) {
+        if (plane == null || !Double.isFinite(routeDistance) || routeDistance <= 0.0) {
+            return 0.0;
+        }
+
+        double currentSpeed = plane.getCurrentSpeed();
+        if (!Double.isFinite(currentSpeed) || currentSpeed <= 0.0) {
+            return 0.0;
+        }
+
+        // Do not mutate the plane while evaluating the optimal speed.
+        // We only estimate the best possible cruising speed from the current state.
+        double acceleratedSpeed = currentSpeed;
+        try {
+            java.lang.reflect.Method getMaxSpeedMethod = plane.getClass().getMethod("getMaxSpeed");
+            Object maxSpeedValue = getMaxSpeedMethod.invoke(plane);
+            if (maxSpeedValue instanceof Number) {
+                double maxSpeed = ((Number) maxSpeedValue).doubleValue();
+                if (Double.isFinite(maxSpeed) && maxSpeed > currentSpeed) {
+                    acceleratedSpeed = maxSpeed;
+                }
+            }
+        } catch (ReflectiveOperationException ignored) {
+            // No max-speed accessor is available; keep the current speed.
+        }
+
+        if (currentSpeed > 0.0 && acceleratedSpeed > currentSpeed) {
+            double fuelSavedAtCruise = routeDistance * (1.0 / currentSpeed - 1.0 / acceleratedSpeed);
+            if (fuelSavedAtCruise > 0.0) {
+                return acceleratedSpeed;
+            }
+        }
+        return currentSpeed;
+    }
+
+    private void acceleratePlaneToOptimalSpeed(Plane plane, double optimalSpeed) {
+        if (plane == null || !Double.isFinite(optimalSpeed) || optimalSpeed <= 0.0) {
+            return;
+        }
+
+        double currentSpeed = plane.getCurrentSpeed();
+        if (!Double.isFinite(currentSpeed) || currentSpeed <= 0.0 || optimalSpeed <= currentSpeed) {
+            return;
+        }
+
+        int safetyLimit = 0;
+        while (plane.getCurrentSpeed() < optimalSpeed && safetyLimit < 100) {
+            plane.accelerate(optimalSpeed);
+            if (!Double.isFinite(plane.getCurrentSpeed()) || plane.getCurrentSpeed() <= currentSpeed) {
+                break;
+            }
+            currentSpeed = plane.getCurrentSpeed();
+            safetyLimit++;
+        }
+    }
+
+    public double[][] plotRoute(Plane plane, int startX, int startY, int endX, int endY) {
         double[][] safePath = new double[64][64];
+        double[][] dangerMap = generateDangerMap();
 
         if (plane == null || startX < 0 || startX >= 64 || startY < 0 || startY >= 64
                 || endX < 0 || endX >= 64 || endY < 0 || endY >= 64) {
@@ -112,8 +170,8 @@ public class PathFinder {
         double[] time = new double[rows * cols];
         int[] prev = new int[rows * cols];
         Arrays.fill(time, Double.POSITIVE_INFINITY);
+        Arrays.fill(prev, -1);
         time[s] = 0;
-        prev[s] = -1;
 
         PriorityQueue<double[]> pq = new PriorityQueue<>((a, b) -> Double.compare(a[0], b[0]));
         pq.add(new double[]{0, s});
@@ -121,7 +179,7 @@ public class PathFinder {
         while (!pq.isEmpty()) {
             double[] top = pq.poll();
             int curr = (int) top[1];
-            if (top[0] > time[curr]) continue;
+            if (Double.compare(top[0], time[curr]) != 0) continue;
             if (curr == g) break;
 
             int r = curr / cols;
@@ -148,14 +206,23 @@ public class PathFinder {
             }
         }
 
-        if (time[g] == Double.POSITIVE_INFINITY) {
+        if (!Double.isFinite(time[g])) {
             System.out.println("No path found.");
             return null;
         }
 
         LinkedList<int[]> path = new LinkedList<>();
-        for (int at = g; at != -1; at = prev[at]) {
+        int at = g;
+        while (at != -1) {
             path.addFirst(new int[]{at / cols, at % cols});
+            if (at == s) {
+                break;
+            }
+            at = prev[at];
+        }
+        if (path.isEmpty() || path.getFirst()[0] != startX || path.getFirst()[1] != startY) {
+            System.out.println("No valid path found.");
+            return null;
         }
 
         double[][] route = new double[path.size()][2];
@@ -163,6 +230,41 @@ public class PathFinder {
             route[i][0] = path.get(i)[0];
             route[i][1] = path.get(i)[1];
         }
+
+        // Account for the route length when deciding whether acceleration pays
+        // for itself. In the travel model, fuel use per distance is proportional
+        // to the time required (1 / speed).
+        double routeDistance = 0.0;
+        for (int i = 1; i < path.size(); i++) {
+            int[] previous = path.get(i - 1);
+            int[] current = path.get(i);
+            routeDistance += Math.hypot(current[0] - previous[0], current[1] - previous[1]);
+        }
+
+
+
+        double optimalTravelSpeed = computeOptimalTravelSpeed(plane, routeDistance);
+        double speedBeforeAcceleration = plane.getCurrentSpeed();
+        acceleratePlaneToOptimalSpeed(plane, optimalTravelSpeed);
+
+        double currentSpeed = plane.getCurrentSpeed();
+        if (currentSpeed > speedBeforeAcceleration) {
+            System.out.println("Route is long enough to justify acceleration: optimal speed = " + optimalTravelSpeed);
+        } else {
+            System.out.println("Optimal travel speed for this route: " + currentSpeed);
+        }
+
+        for (int i = 1; i < path.size(); i++) {
+            int[] previous = path.get(i - 1);
+            int[] current = path.get(i);
+            double distance = Math.hypot(current[0] - previous[0], current[1] - previous[1]);
+            plane.travel(distance);
+            if (plane.getFuelCapacity() <= 0) {
+                System.out.println("Path failed: Aircraft ran out of fuel");
+                return null;
+            }
+        }
+        System.out.println("Fuel remaining: " + plane.getFuelCapacity());
         return route;
     }
 

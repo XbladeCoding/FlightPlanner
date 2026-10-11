@@ -1,14 +1,25 @@
+import java.util.Random;
+
 public class Main {
     public static void main(String[] args) {
         Plane plane = new Plane("Boeing 747", 900, 183380, 1000);
-        Wind wind = new Wind(50, 45);
-        Weather weather = new Weather(0.5, 0.8, 20);
+
+        double[][] terrainMap = ArrayGen.generate64x64Terrain(new Random().nextLong());
 
         PathFinder pathFinder = new PathFinder();
-        double[] effectiveSpeedAndDirection = pathFinder.getEffectiveSpeed(plane, wind);
+        double[][] route = pathFinder.plotRoute(plane, 0, 0, 0, 0);
 
-        System.out.println("Effective Speed: " + effectiveSpeedAndDirection[0]);
-        System.out.println("Effective Direction: " + effectiveSpeedAndDirection[1] + " degrees east of north");
-        System.out.println("Weather Danger Level: " + weather.getDanger());
+        if (route != null) {
+            System.out.println("Route generated successfully.");
+        } else {
+            System.out.println("Failed to generate route.");
+        }
+
+        for (int i = 0; i < route.length; i++) {
+            for (int j = 0; j < route[i].length; j++) {
+                System.out.print(route[i][j] + " ");
+            }
+            System.out.println();
+        }
     }
 }
